@@ -155,17 +155,17 @@ The notebook contains 8 sections, structured as follows:
   * Matplotlib 5x5 product image grid with text overlay (robustly wrapped in try/except).
   * Markdown summary documenting image statistics.
 * **## SECTION 2: Feature Extraction Pipeline**
-  * **2a (Text)**: Encodes concatenated metadata using SentenceTransformer `all-MiniLM-L6-v2` into text embeddings.
-  * **2b (Visual)**: Extracts image features using a pretrained ResNet50 (final pooling/FC layers stripped) in batches of 32.
-  * **2c (Hybrid Indexing)**: Normalizes and combines features (40% text, 60% vision) and builds a FAISS `IndexFlatIP` (Inner Product) index.
+  * **2a (Text)**: Encodes concatenated metadata using the pretrained **FashionCLIP** text encoder into 512-dimensional text embeddings.
+  * **2b (Visual)**: Extracts image features using the **FashionCLIP** vision encoder into 512-dimensional visual embeddings.
+  * **2c (Multimodal Hybrid Indexing)**: Normalizes both modalities, averages them to create a hybrid multimodal representation, and builds a FAISS `IndexFlatIP` (Inner Product) index.
 * **## SECTION 3: Outfit Compatibility Engine**
   * **3a**: A dictionary mapping each article category to its compatible categories.
   * **3b**: Color harmony logic handling neutral pairings and classic style matches.
   * **3c**: Compatibility Scorer computing: `Score = 0.4*category_match + 0.3*color_harmony + 0.3*embedding_similarity` and returning natural language explanations.
   * **3d**: Outfit Generator that builds coord-outfits (top, bottom, footwear, accessories) around any seed item.
 * **## SECTION 4: Chat-based Fashion Assistant**
-  * **4a**: Keyword-based intent parser detecting search, outfit generation, compatibility checks, and style advice.
-  * **4b**: Conversational response builder formatting details with styled emojis.
+  * **4a**: Keyword-based intent parser detecting search, outfit generation, compatibility checks, and style advice, preserving the original query text.
+  * **4b**: Conversational response builder leveraging **FashionCLIP** to execute zero-shot text-to-image semantic search by ranking image embeddings (`visual_norm`) against the query text embedding.
   * **4c**: Interactive `ipywidgets` chat widget with styled bubbles and a print-based `chat_simulation()` fallback.
 * **## SECTION 5: Evaluation & Visualization**
   * **5a (Quantitative Evaluation)**: Validates the engine against the 25 curated outfits in `outfits.csv`.
@@ -180,7 +180,7 @@ The notebook contains 8 sections, structured as follows:
   * **7a (User Profile)**: Defines the `UserProfile` dataclass mapping gender, age group, occasion context, and style preferences.
   * **7b (Context Mappings)**: Implements static rules for preferred styles, preferred colors, and avoided types per occasion and age segment.
   * **7c (Candidate Filtering)**: Eliminates gender-incompatible products and excluded items per occasion context.
-  * **7d (Context Scorer)**: Re-ranks products using a 5-signal soft scoring formula: Base Similarity (30%), Occasion Relevance (25%), Color Context (20%), Style Alignment (15%), and Age Formality (10%).
+  * **7d (Context Scorer)**: Re-ranks products using a 5-signal soft scoring formula: Base Similarity (30%), Occasion Relevance (25% calculated as the zero-shot cosine similarity between candidate visual embeddings and target occasion text descriptions encoded by FashionCLIP), Color Context (20%), Style Alignment (15%), and Age Formality (10%).
   * **7e (Profile Outfit Generator)**: Compiles outfits matching slots based on context-aware scores.
   * **7f (Profile Chat)**: Parses natural language queries to extract user profiles and overrides dropdown settings.
   * **7g (Profile Chat Dashboard & Demo)**: Builds an interactive widget dashboard with dropdown selectors and executes a static demo printing outcomes for 5 diverse test queries with detailed signal score breakdowns.

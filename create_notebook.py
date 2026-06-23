@@ -13,7 +13,7 @@ Ensure you have all the required libraries installed. In Google Colab, we recomm
 To enable GPU: **Runtime > Change runtime type > T4 GPU**."""))
 
 cells.append(nbf.v4.new_code_cell("""# Setup dependencies
-!pip install sentence-transformers faiss-cpu torch torchvision matplotlib seaborn pandas numpy pillow-heif pillow-avif-plugin scikit-learn ipywidgets tqdm
+!pip install transformers sentence-transformers faiss-cpu torch torchvision matplotlib seaborn pandas numpy pillow-heif pillow-avif-plugin scikit-learn ipywidgets tqdm
 
 import torch
 print("GPU Available:", torch.cuda.is_available())
@@ -181,33 +181,48 @@ cells.append(nbf.v4.new_markdown_cell("""### SECTION 1: EDA Findings & Dataset C
 
 # Section 2: Feature Extraction Pipeline
 cells.append(nbf.v4.new_markdown_cell("""## SECTION 2: Feature Extraction Pipeline
-Here, we extract text features using `sentence-transformers` and visual features using a pretrained `ResNet50` network. We combine both into a hybrid multimodal embedding space and build a FAISS index.
-⚠️ **Colab Note**: This cell runs in about 10-15 seconds on a GPU. On a CPU, it may take 1-2 minutes."""))
+Here, we extract text features and visual features using the pretrained **FashionCLIP** model (`patrickjohncyh/fashion-clip`). We combine both into a hybrid multimodal embedding space and build a FAISS index.
+⚠️ **Colab Note**: Loading the model and processing the images/metadata takes approximately 1-2 minutes on CPU or 20-30 seconds on GPU."""))
 
 cells.append(nbf.v4.new_code_cell("""import numpy as np
 import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
-from torch.utils.data import Dataset, DataLoader
-from sentence_transformers import SentenceTransformer
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
 from tqdm import tqdm
 import os
+import pillow_avif
 
 # Check for pre-saved embeddings to speed up notebook execution during local runs
 USE_PRECOMPUTED = os.path.exists('text_embeddings.npy') and os.path.exists('visual_embeddings.npy')
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("Using device:", device)
+
+print("Loading patrickjohncyh/fashion-clip from Hugging Face...")
+model = CLIPModel.from_pretrained('patrickjohncyh/fashion-clip').to(device)
+processor = CLIPProcessor.from_pretrained('patrickjohncyh/fashion-clip')
+model.eval()
 
 # 2a. Text Feature Extraction
 if USE_PRECOMPUTED:
     print("Loading precomputed text embeddings from cache...")
     text_embeddings = np.load('text_embeddings.npy')
 else:
-    print("Extracting text features using SentenceTransformer...")
-    model_text = SentenceTransformer('all-MiniLM-L6-v2')
+    print("Extracting text features using FashionCLIP text encoder...")
     text_inputs = [
         f"{row['gender']} {row['category']} {row['color']} {row['occasion']} {row['name']} {row['description']}"
         for _, row in df.iterrows()
     ]
-    text_embeddings = model_text.encode(text_inputs, show_progress_bar=True)
+    
+    text_features_list = []
+    batch_size = 16
+    for i in range(0, len(text_inputs), batch_size):
+        batch_texts = text_inputs[i:i+batch_size]
+        inputs = processor(text=batch_texts, padding=True, truncation=True, max_length=77, return_tensors="pt").to(device)
+        with torch.no_grad():
+            features = model.get_text_features(**inputs)
+        text_features_list.append(features.cpu().numpy())
+    text_embeddings = np.vstack(text_features_list)
     np.save('text_embeddings.npy', text_embeddings)
 
 print("Text Embeddings shape:", text_embeddings.shape)"""))
@@ -217,52 +232,22 @@ if USE_PRECOMPUTED:
     print("Loading precomputed visual embeddings from cache...")
     visual_embeddings = np.load('visual_embeddings.npy')
 else:
-    print("Extracting visual features using ResNet50...")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Using device:", device)
-    
-    # Load ResNet50 pretrained on ImageNet and strip the final fully connected layer
-    resnet = models.resnet50(pretrained=True)
-    resnet = torch.nn.Sequential(*(list(resnet.children())[:-1]))
-    resnet = resnet.to(device)
-    resnet.eval()
-    
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    class FashionDataset(Dataset):
-        def __init__(self, df, transform=None):
-            self.df = df
-            self.transform = transform
+    print("Extracting visual features using FashionCLIP vision encoder...")
+    visual_features_list = []
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Visual Extraction"):
+        img_path = row['image']
+        try:
+            img = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            img = Image.new('RGB', (224, 224), (255, 255, 255))
+            print(f"Error loading image {img_path}: {e}")
             
-        def __len__(self):
-            return len(self.df)
-            
-        def __getitem__(self, idx):
-            img_path = self.df.iloc[idx]['image']
-            try:
-                img = Image.open(img_path).convert('RGB')
-            except Exception as e:
-                img = Image.new('RGB', (224, 224), (255, 255, 255))
-            if self.transform:
-                img = self.transform(img)
-            return img
-
-    dataset = FashionDataset(df, transform=transform)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
-    
-    visual_embs = []
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Visual extraction"):
-            batch = batch.to(device)
-            features = resnet(batch) # shape: [B, 2048, 1, 1]
-            features = features.squeeze(-1).squeeze(-1) # shape: [B, 2048]
-            visual_embs.append(features.cpu().numpy())
-            
-    visual_embeddings = np.vstack(visual_embs)
+        inputs = processor(images=img, return_tensors="pt").to(device)
+        with torch.no_grad():
+            features = model.get_image_features(**inputs)
+        visual_features_list.append(features.cpu().numpy())
+        
+    visual_embeddings = np.vstack(visual_features_list)
     np.save('visual_embeddings.npy', visual_embeddings)
 
 print("Visual Embeddings shape:", visual_embeddings.shape)"""))
@@ -284,11 +269,9 @@ def l2_normalize(vecs):
 text_norm = l2_normalize(text_embeddings)
 visual_norm = l2_normalize(visual_embeddings)
 
-# Concatenate hybrid embeddings: 40% Text, 60% Visual
-combined_embeddings = np.hstack([0.4 * text_norm, 0.6 * visual_norm])
-
-# L2-normalize the combined vector so that inner product is cosine similarity
-combined_norm = l2_normalize(combined_embeddings)
+# Compute multimodal hybrid embedding: average of L2-normalized text and visual features
+clip_combined = (text_norm + visual_norm) / 2.0
+combined_norm = l2_normalize(clip_combined)
 
 if USE_SIM_CACHE:
     print("Loading precomputed similarity matrix from cache...")
@@ -649,7 +632,8 @@ def parse_intent(user_text: str, df) -> dict:
     return {
         'intent': intent,
         'filters': filters,
-        'item_id': item_id
+        'item_id': item_id,
+        'query_text': user_text
     }"""))
 
 cells.append(nbf.v4.new_code_cell("""# 4b. Response Builder
@@ -694,24 +678,54 @@ def build_response(intent, parsed, df, sim_matrix) -> tuple:
         return response, outfit_items
         
     elif intent == 'find_item':
+        query_text = parsed.get('query_text', '')
         candidates = df.copy()
         for key, val in filters.items():
             if val:
                 candidates = candidates[candidates[key] == val]
                 
-        if candidates.empty:
-            response = "🔍 **Stylist Assistant**: I couldn't find products matching that exact search. Check out these highly popular alternatives:\\n"
-            samples = df.sample(min(3, len(df)))
-            for row in samples.itertuples():
-                response += f"\\n- **{row.brand} {row.name}** in {row.color} (₹{row.price_inr})"
+        use_clip_search = False
+        if query_text:
+            try:
+                inputs = processor(text=[query_text], padding=True, truncation=True, max_length=77, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    query_emb = model.get_text_features(**inputs).cpu().numpy()
+                query_norm = query_emb / (np.linalg.norm(query_emb, axis=1, keepdims=True) + 1e-10)
+                similarities = np.dot(visual_norm, query_norm.T).squeeze()
+                
+                df_temp = df.copy()
+                df_temp['similarity'] = similarities
+                
+                if not candidates.empty:
+                    candidates = df_temp.loc[candidates.index].sort_values(by='similarity', ascending=False)
+                else:
+                    candidates = df_temp.sort_values(by='similarity', ascending=False)
+                use_clip_search = True
+            except Exception as e:
+                # If CLIP variables aren't globally available or fail, we print error and use fallback
+                pass
+                
+        if use_clip_search:
+            response = "🔍 **Stylist Assistant**: Here are the matching products I found for you using zero-shot semantic search:\\n"
+            for idx, row in candidates.head(3).iterrows():
+                sim_score = row['similarity']
+                response += f"\\n- **{row['brand']} {row['name']}** in {row['color']} (₹{row['price_inr']}) [Match: {sim_score*100:.1f}%]"
+                outfit_items.append(df.loc[idx].to_dict())
+            return response, outfit_items
+        else:
+            if candidates.empty:
+                response = "🔍 **Stylist Assistant**: I couldn't find products matching that exact search. Check out these highly popular alternatives:\\n"
+                samples = df.sample(min(3, len(df)))
+                for row in samples.itertuples():
+                    response += f"\\n- **{row.brand} {row.name}** in {row.color} (₹{row.price_inr})"
+                    outfit_items.append(df.loc[row.Index].to_dict())
+                return response, outfit_items
+                
+            response = f"🔍 **Stylist Assistant**: Here are the matching products I found for you:\\n"
+            for row in candidates.head(3).itertuples():
+                response += f"\\n- **{row.brand} {row.name}** in {row.color} (₹{row.price_inr}) - perfect choice for a {row.occasion}!"
                 outfit_items.append(df.loc[row.Index].to_dict())
             return response, outfit_items
-            
-        response = f"🔍 **Stylist Assistant**: Here are the matching products I found for you:\\n"
-        for row in candidates.head(3).itertuples():
-            response += f"\\n- **{row.brand} {row.name}** in {row.color} (₹{row.price_inr}) - perfect choice for a {row.occasion}!"
-            outfit_items.append(df.loc[row.Index].to_dict())
-        return response, outfit_items
         
     elif intent == 'compatibility_check':
         if item_id:
@@ -1079,7 +1093,10 @@ for p in [profile_office_man, profile_party_woman,
 cells.append(nbf.v4.new_markdown_cell("""## 7b: Context Mapping Tables
 Static lookup tables to match profile dimensions with styling preferences."""))
 
-cells.append(nbf.v4.new_code_cell("""# OCCASION → article type preferences + color palette
+cells.append(nbf.v4.new_code_cell("""# NEUTRAL_COLORS defined locally to support independent cell execution
+NEUTRAL_COLORS = ["White", "Black", "Grey", "Navy Blue", "Beige", "Off White", "Cream", "Dark Grey"]
+
+# OCCASION → article type preferences + color palette
 OCCASION_PROFILE = {
     'Office': {
         'preferred_types':  ['formal-shirts', 'linen-shirts', 'trousers', 'chinos', 'blazers', 'suits', 'formal-shoes', 'loafers', 'watches'],
@@ -1243,18 +1260,41 @@ cells.append(nbf.v4.new_code_cell("""def context_aware_score(
     item_type = str(candidate.get(type_col, '')).lower()
     item_color = str(candidate.get(color_col, ''))
     
-    # Signal 2: Occasion relevance (25%)
+    # Signal 2: Occasion relevance (25%) using Zero-Shot CLIP text-to-image similarity
     occasion_score = 0.5
-    if profile.occasion and profile.occasion in OCCASION_PROFILE:
-        occ = OCCASION_PROFILE[profile.occasion]
-        preferred = [t.lower() for t in occ['preferred_types']]
-        avoided = [t.lower() for t in occ['avoid_types']]
-        if item_type in preferred:
-            occasion_score = 1.0
-        elif item_type in avoided:
-            occasion_score = 0.0
-        else:
-            occasion_score = 0.5
+    if profile.occasion:
+        occ_desc_map = {
+            'Office': 'business formal office wear',
+            'Party': 'glamorous party night wear',
+            'Wedding': 'traditional wedding ceremonial wear',
+            'Beach': 'casual beach vacation wear',
+            'Casual': 'relaxed everyday casual wear',
+            'Formal': 'classic formal evening wear',
+            'Date Night': 'romantic evening date night wear',
+            'Sport': 'athletic sports gym activewear'
+        }
+        occ_desc = occ_desc_map.get(profile.occasion, f"clothing for {profile.occasion}")
+        
+        global OCCASION_EMBEDDINGS
+        if 'OCCASION_EMBEDDINGS' not in globals():
+            OCCASION_EMBEDDINGS = {}
+            
+        if profile.occasion not in OCCASION_EMBEDDINGS:
+            try:
+                inputs = processor(text=[occ_desc], padding=True, truncation=True, max_length=77, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    text_emb = model.get_text_features(**inputs).cpu().numpy()
+                text_norm = text_emb / (np.linalg.norm(text_emb, axis=1, keepdims=True) + 1e-10)
+                OCCASION_EMBEDDINGS[profile.occasion] = text_norm.squeeze()
+            except Exception as e:
+                pass
+                
+        if profile.occasion in OCCASION_EMBEDDINGS:
+            occ_emb = OCCASION_EMBEDDINGS[profile.occasion]
+            cand_vis_norm = visual_norm[candidate_idx]
+            sim = float(np.dot(cand_vis_norm, occ_emb))
+            # Rescale similarity from typical range [0.15, 0.35] to [0.0, 1.0]
+            occasion_score = float(np.clip((sim - 0.18) / (0.32 - 0.18), 0.0, 1.0))
             
     # Signal 3: Color context match (20%)
     color_score = 0.5
