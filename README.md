@@ -124,6 +124,63 @@ print(f"Rationale: {first_outfit['stylist_rationale']}")
 
 ---
 
+## 🏛️ System Architecture
+
+The Antigravity AI Fashion Stylist system is built on a hybrid architecture that integrates **vector search**, **semantic NLU parsing**, **context-aware rule engines**, and **LLM generation**.
+
+Here is the overall workflow of the conversational stylist:
+
+```mermaid
+graph TD
+    User([User Prompt]) --> Streamlit[Streamlit Chat Interface]
+    Streamlit --> GeminiParser[Gemini NLU Parser]
+    GeminiParser -->|Intent, Filters, Profile| Recommender[Local Recommendation Engine]
+    
+    subgraph Recommender Engine
+        Recommender --> ZeroShotSearch[Zero-Shot Semantic Search]
+        ZeroShotSearch -->|Query text vs Image Embeddings| CLIPVisual[FashionCLIP Visual Norm]
+        
+        Recommender --> OutfitGen[Outfit Coordinate Generator]
+        OutfitGen --> CategoryFilter[Hard Profile Candidate Filtering]
+        OutfitGen --> ScoreScorer[5-Signal Re-Ranking Scorer]
+        
+        subgraph 5-Signal Scorer
+            ScoreScorer --> BaseCompat[Base Styling Compatibility 30%]
+            ScoreScorer --> OccasionCLIP[Zero-Shot CLIP Occasion Relevance 25%]
+            ScoreScorer --> ColorPalette[Color Context Fit 20%]
+            ScoreScorer --> StylePref[Style Alignment Boost 15%]
+            ScoreScorer --> AgeGroup[Age Formality Fit 10%]
+        end
+    end
+    
+    Recommender -->|Recommended Items + Rationales| GeminiHumanizer[Gemini Stylist Explainer]
+    GeminiHumanizer -->|Humanized Stylist Explanation| Streamlit
+    Streamlit -->|Rendered Product Cards| User
+```
+
+### 1. Outfit Compatibility Engine
+The compatibility engine evaluates the styling cohesion between fashion products using a composite score:
+$$\text{Compatibility Score} = 0.4 \times \text{Category Match} + 0.3 \times \text{Color Harmony} + 0.3 \times \text{Embedding Similarity}$$
+
+* **Category Compatibility**: Map-based rules (`COMPATIBLE_CATEGORIES`) defining which items pair together structurally (e.g. `formal-shirts` match with `trousers` and `formal-shoes`).
+* **Color Harmony**: Checks if color combinations match neutral colors (White, Black, Navy Blue, Beige, Cream, Off White, Grey) or belong to curated harmonious pairs (e.g. Red + Black, Green + Beige, Gold + Black).
+* **Multimodal Embedding Similarity**: Calculates cosine similarity using the **FashionCLIP** (`patrickjohncyh/fashion-clip`) average hybrid embeddings of the products:
+  $$\text{Embedding Similarity} = \frac{\cos(\mathbf{e}_1, \mathbf{e}_2) + 1}{2}$$
+  where $\mathbf{e}_i$ is the hybrid normalized text + vision embedding vector for product $i$.
+
+---
+
+### 2. User & Context-Aware Recommendations
+To provide personalized recommendations matching user situations, the engine re-ranks candidate products using 4 profile parameters (Gender, Age Group, Occasion, Style Preference) across 5 scoring signals:
+
+1. **Base Styling Compatibility (30% weight)**: Calculated via the Outfit Compatibility Engine score.
+2. **Occasion Relevance (25% weight)**: Replaces rule-based category list mappings with a **zero-shot text-to-image similarity check**. It encodes descriptive occasion text targets (e.g., `"business formal office wear"` for `Office`) via FashionCLIP's text encoder and computes the cosine similarity against the candidate product's image embedding (`visual_norm`).
+3. **Color Context (20% weight)**: Scores color alignment depending on the occasion profile (e.g. neutral colors for office, bright/bold colors for parties).
+4. **Style Preference (15% weight)**: Boosts product types aligned with the user's specific preference (e.g. Streetwear boosts sweatshirts, sneakers, and track pants).
+5. **Age Formality Fit (10% weight)**: Measures the formality deviation between age-group styling targets (e.g. younger 20s prefer relaxed formality; mature 50s+ prefer structured formality) and candidate product category formalities.
+
+---
+
 ## 📊 Dataset Analysis & EDA Summary
 
 A comprehensive exploratory data analysis of the cloned dataset was performed in the notebook:
