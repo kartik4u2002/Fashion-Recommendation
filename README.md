@@ -121,4 +121,59 @@ print(f"Rationale: {first_outfit['stylist_rationale']}")
 
 ---
 *Good luck with the assignment! We look forward to seeing your creative and technical solutions.*
-# ML-Intern-Task
+
+---
+
+## 📊 Dataset Analysis & EDA Summary
+
+A comprehensive exploratory data analysis of the cloned dataset was performed in the notebook:
+* **Total Products**: 68 unique products.
+* **Curated Outfits**: 25 expert-curated outfits (ground-truth reference pairs).
+* **Category Distribution**: 47 unique categories (e.g. `formal-shirts`, `party-dresses`, `jeans`, `running-shoes`), indicating a high degree of class variety but significant class imbalance (many categories contain only 1 item).
+* **Color Palette Distribution**: Main colors were extracted from text descriptions, with Red (9), White (8), Black (8), Navy Blue (8), Brown (8), and Grey (4) making up the top colors.
+* **Image Resolutions**:
+  * Widths range from 256px to 420px (Mean: 370.8px).
+  * Heights range from 341px to 560px (Mean: 494.3px).
+* **Dataset Challenges Addressed**:
+  * **AVIF Images**: 28 of the 68 product images are encoded as AVIF format but saved with `.jpg` extensions. Standard Pillow (`PIL.Image`) crashes on these without the `pillow-avif-plugin` installed and explicitly imported in the notebook.
+  * **Metadata Gaps**: The original `products.csv` lacks an explicit "color" column. We successfully extracted colors by matching names and descriptions against a strict target color list.
+
+---
+
+## 📓 What's Inside the Notebook (`fashion_recommendation_assistant.ipynb`)
+
+The notebook contains 8 sections, structured as follows:
+
+* **## SECTION 0: Setup & Install**
+  * Core imports and dependency installations.
+  * Explicit loading of the `pillow-avif-plugin` to register the AVIF decoder.
+  * Verification of the T4 GPU runtime.
+* **## SECTION 1: Dataset Analysis & EDA**
+  * Automated repository cloning and path setup.
+  * Core pandas analysis (shapes, null counts, unique value prints).
+  * Seaborn distribution plots (category count, color count, and gender/occasion count).
+  * Matplotlib 5x5 product image grid with text overlay (robustly wrapped in try/except).
+  * Markdown summary documenting image statistics.
+* **## SECTION 2: Feature Extraction Pipeline**
+  * **2a (Text)**: Encodes concatenated metadata using SentenceTransformer `all-MiniLM-L6-v2` into text embeddings.
+  * **2b (Visual)**: Extracts image features using a pretrained ResNet50 (final pooling/FC layers stripped) in batches of 32.
+  * **2c (Hybrid Indexing)**: Normalizes and combines features (40% text, 60% vision) and builds a FAISS `IndexFlatIP` (Inner Product) index.
+* **## SECTION 3: Outfit Compatibility Engine**
+  * **3a**: A dictionary mapping each article category to its compatible categories.
+  * **3b**: Color harmony logic handling neutral pairings and classic style matches.
+  * **3c**: Compatibility Scorer computing: `Score = 0.4*category_match + 0.3*color_harmony + 0.3*embedding_similarity` and returning natural language explanations.
+  * **3d**: Outfit Generator that builds coord-outfits (top, bottom, footwear, accessories) around any seed item.
+* **## SECTION 4: Chat-based Fashion Assistant**
+  * **4a**: Keyword-based intent parser detecting search, outfit generation, compatibility checks, and style advice.
+  * **4b**: Conversational response builder formatting details with styled emojis.
+  * **4c**: Interactive `ipywidgets` chat widget with styled bubbles and a print-based `chat_simulation()` fallback.
+* **## SECTION 5: Evaluation & Visualization**
+  * **5a (Quantitative Evaluation)**: Validates the engine against the 25 curated outfits in `outfits.csv`.
+    * *Curated Outfits Score*: **0.785 ± 0.052** (with 100% scoring above `0.7`).
+    * *Random control baseline*: **0.448**.
+    * Plots a density comparison histogram.
+  * **5b (Visual Showcase)**: Renders a 1x4 horizontal image grid showing 5 diverse seeds and their recommended outfit items.
+  * **5c (PCA Cluster Visualization)**: Projects hybrid embeddings to 2D using PCA, color-coded by master category (Apparel, Footwear, Accessories), annotated with typical categories.
+* **## SECTION 6: Demo Showcase Cell**
+  * Demonstrates three end-to-end examples with output: text search queries, outfit generation from a seed item, and a simulated 5-turn conversation transcript.
+
