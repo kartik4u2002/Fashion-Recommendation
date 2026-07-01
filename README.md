@@ -12,19 +12,44 @@ Finally I integrated the gemini api to generate natural language explination so 
 Through this project, I gained hands on experience with multi-model AI model, vector embedding , similarity search, recommendation system, prompt engineering and building end to end AI system.
 ---
 
-## 📁 Dataset Directory Structure
+## 📁 Project Directory Structure
 
-This curated dataset is organized as follows:
 ```text
-NEWDATASET/
-├── README.md               # This documentation file
-├── curated25.xlsx          # Original styled outfits spreadsheet
-├── outfits.csv             # Cleaned outfit mapping of the 25 curated outfits
-├── products.csv            # Detailed metadata for the 68 unique products used in the outfits
-└── images/                 # Product image files matching the product IDs
-    ├── ajio/               # Images sourced from Ajio
-    ├── myntra/             # Images sourced from Myntra
-    └── nykaa/              # Images sourced from Nykaa
+Outfit_Recommendation_System/
+├── README.md                               # Project documentation
+├── PROBLEM_STATEMENT.md                    # Problem statement and project objectives
+│
+├── app.py                                  # Streamlit application entry point
+├── recommender.py                          # Recommendation engine and outfit generation logic
+│
+├── fashion_recommendation_assistant.ipynb  # Development & experimentation notebook
+│
+├── products.csv                            # Product metadata (68 fashion items)
+├── outfits.csv                             # Curated outfit mappings
+├── curated25.xlsx                          # Original curated outfit dataset
+│
+├── visual_embeddings.npy                   # Precomputed FashionCLIP image embeddings
+├── text_embeddings.npy                     # Precomputed FashionCLIP text embeddings
+├── sim_matrix.npy                          # Similarity matrix for fast retrieval
+├── fashion.index                           # FAISS vector index
+│
+├── images/                                 # Product image dataset
+│   ├── ajio/                               # Images scraped from Ajio
+│   ├── myntra/                             # Images scraped from Myntra
+│   └── nykaa/                              # Images scraped from Nykaa
+│
+├── pre_extract.py                          # Embedding preprocessing utilities
+├── pre_extract_fashionclip.py              # FashionCLIP feature extraction script
+│
+├── create_notebook.py                      # Notebook generation utility
+├── append_section_7.py                     # Notebook helper script
+├── fix_create_notebook_newlines.py         # Formatting utility
+├── patch_create_notebook.py                # Notebook patch script
+├── patch_create_notebook_2.py              # Notebook patch script
+├── patch_create_notebook_3.py              # Notebook patch script
+├── run_notebook.py                         # Notebook execution helper
+│
+└── .gitignore                              # Git ignore configuration
 ```
 
 ---
